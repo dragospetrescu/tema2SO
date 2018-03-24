@@ -23,6 +23,8 @@
 #define READ        0
 #define WRITE        1
 
+static void redirect(simple_command_t*);
+
 /**
  * Internal change-directory command.
  */
@@ -30,7 +32,7 @@ static bool shell_cd(word_t *dir) {
 	/* TODO execute cd */
 
 	if (setenv("PWD", dir->string, 1) == 0)
-		printf("AM AJUNS AICI %s vs %s\n",dir->string, getenv("PWD"));
+		printf("AM AJUNS AICI %s vs %s\n", dir->string, getenv("PWD"));
 	return true;
 }
 
@@ -56,7 +58,8 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 			shell_cd(s->params);
 		}
 	}
-	if (strcmp(s->verb->string, "exit") == 0 || strcmp(s->verb->string, "quit") == 0) {
+	if (strcmp(s->verb->string, "exit") == 0 ||
+		strcmp(s->verb->string, "quit") == 0) {
 		shell_exit();
 	}
 
@@ -73,18 +76,8 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 	 */
 
 
-	printf("%d\n ", s->io_flags);
-	if(s->in != NULL) {
-		printf("in: %s\n", s->in->string);
-	}
+//	printf("%d\n ", s->io_flags);
 
-	if(s->out != NULL) {
-		printf("out: %s\n", s->out->string);
-	}
-
-	if(s->err != NULL) {
-		printf("err: %s\n", s->err->string);
-	}
 	pid_t pid, wait_ret;
 	int status;
 	char **params;
@@ -99,6 +92,7 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 		case -1:    /* error */
 			perror("fork");
 		case 0:        /* child process */
+			redirect(s);
 			chdir(getenv("PWD"));
 			params[no_args] = malloc(
 					sizeof(char) * (strlen(s->verb->string) + 1));
@@ -109,7 +103,8 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 				params[no_args] = malloc(
 						sizeof(char) * (strlen(params_parser->string) + 1));
 				strcpy(params[no_args], params_parser->string);
-				params_parser = params_parser->next_part;
+
+				params_parser = params_parser->next_word;
 				no_args++;
 			}
 			params[no_args] = (char *) NULL;
@@ -125,9 +120,43 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 //							   "with exit code %d\n",
 //					   pid, WEXITSTATUS(status));
 	}
-
-
 	return 0; /* TODO replace with actual exit status */
+}
+
+static void redirect(simple_command_t *s) {
+	if (s->in != NULL) {
+		int fid = open(s->in->string, O_RDONLY);
+		dup2(fid, STDIN_FILENO);
+	}
+
+	if (s->out != NULL) {
+		int fid = -1;
+		if (s->io_flags == IO_REGULAR)
+			fid = open(s->out->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		else if (s->io_flags == IO_OUT_APPEND)
+			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
+		else
+			fprintf(stderr, "RAGAT2\n");
+		if (fid < 0)
+			fprintf(stderr, "RAGAT\n");
+
+		dup2(fid, STDOUT_FILENO);
+	}
+
+	if (s->err != NULL) {
+		int fid = -1;
+		if (s->io_flags == IO_REGULAR) {
+			fid = open(s->err->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		}
+		else if (s->io_flags == IO_ERR_APPEND)
+			fid = open(s->err->string, O_APPEND | O_RDWR | O_CREAT, 0644);
+		else
+			fprintf(stderr, "RAGAT4\n");
+		if (fid < 0)
+			fprintf(stderr, "RAGAT5\n");
+
+		dup2(fid, STDERR_FILENO);
+	}
 }
 
 /**
