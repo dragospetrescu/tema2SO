@@ -114,11 +114,12 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 		default:    /* parent process */
 			wait_ret = waitpid(pid, &status, 0);
 
+			fprintf(stderr, "CHILD DIED %d %d \n", status, WIFEXITED(status));
 
-//			if (WIFEXITED(status))
-//				printf("Child process (pid %d) terminated normally, "
-//							   "with exit code %d\n",
-//					   pid, WEXITSTATUS(status));
+			if (WIFEXITED(status))
+				printf("Child process (pid %d) terminated normally, "
+							   "with exit code %d\n",
+					   pid, WEXITSTATUS(status));
 	}
 	return 0; /* TODO replace with actual exit status */
 }
@@ -128,22 +129,9 @@ static void redirect(simple_command_t *s) {
 		int fid = open(s->in->string, O_RDONLY);
 		dup2(fid, STDIN_FILENO);
 	}
-
-	if (s->out != NULL) {
-		int fid = -1;
-		if (s->io_flags == IO_REGULAR)
-			fid = open(s->out->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
-		else if (s->io_flags == IO_OUT_APPEND)
-			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
-		else
-			fprintf(stderr, "RAGAT2\n");
-		if (fid < 0)
-			fprintf(stderr, "RAGAT\n");
-
-		dup2(fid, STDOUT_FILENO);
-	}
-
+	fprintf(stderr, "%s %s %d\n", s->out->string, s->err->string, s->err->expand);
 	if (s->err != NULL) {
+		fprintf(stderr, "ERR %s\n", s->err->string);
 		int fid = -1;
 		if (s->io_flags == IO_REGULAR) {
 			fid = open(s->err->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
@@ -154,8 +142,26 @@ static void redirect(simple_command_t *s) {
 			fprintf(stderr, "RAGAT4\n");
 		if (fid < 0)
 			fprintf(stderr, "RAGAT5\n");
+		fprintf(stderr, "INAINTE DE dup2 in err %d\n", fid);
+		int i = dup2(fid, STDERR_FILENO);
+		fprintf(stderr, "DUPA dup2 in err %d\n", i);
+	}
+	fprintf(stderr, "TERMINAT err\n");
+	fprintf(stderr, "%s %s %d\n", s->out->string, s->err->string, s->err->expand);
 
-		dup2(fid, STDERR_FILENO);
+	if (s->out != NULL) {
+		int fid = -1;
+		fprintf(stderr, "OUT %s\n", s->out->string);
+		if (s->io_flags == IO_REGULAR)
+			fid = open(s->out->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		else if (s->io_flags == IO_OUT_APPEND)
+			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
+		else
+			fprintf(stderr, "RAGAT2\n");
+		if (fid < 0)
+			fprintf(stderr, "RAGAT\n");
+
+		dup2(fid, STDOUT_FILENO);
 	}
 }
 
