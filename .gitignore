@@ -3,3 +3,5 @@ cmake-build-debug/*
 .idea/*
 *.o
 CMakeLists.txt
+linux/my_ref/*
+linux/my_test/*
