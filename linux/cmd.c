@@ -23,17 +23,77 @@
 #define READ        0
 #define WRITE        1
 
-static void redirect(simple_command_t*);
+static void redirect(simple_command_t *);
+
+static void stop_redirect(simple_command_t *);
 
 /**
  * Internal change-directory command.
  */
-static bool shell_cd(word_t *dir) {
-	/* TODO execute cd */
 
-	if (setenv("PWD", dir->string, 1) == 0)
-		return false;
-	return true;
+
+static bool shell_cd(simple_command_t *s) {
+	/* TODO execute cd */
+	//redirect(s);
+	int fid = -1;
+	int stdin_des = -1;
+	int stdout_des = -1;
+	int stderr_des = -1;
+	if (s->in != NULL) {
+		fid = open(s->in->string, O_RDONLY);
+		stdin_des = dup(STDIN_FILENO);
+		dup2(fid, STDIN_FILENO);
+	}
+
+	if (s->out != NULL) {
+		stdout_des = dup(STDOUT_FILENO);
+		fid = -1;
+		if (s->io_flags == IO_REGULAR)
+			fid = open(s->out->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		else if (s->io_flags == IO_OUT_APPEND)
+			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
+		else
+			fprintf(stderr, "RAGAT2\n");
+		if (fid < 0)
+			fprintf(stderr, "RAGAT\n");
+
+		dup2(fid, STDOUT_FILENO);
+		if (s->err != NULL) {
+			stderr_des = dup(STDERR_FILENO);
+			dup2(fid, STDERR_FILENO);
+		}
+	}
+
+	if (s->err != NULL) {
+		fid = -1;
+		stderr_des = dup(STDERR_FILENO);
+		if (s->io_flags == IO_REGULAR) {
+			fid = open(s->err->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		} else if (s->io_flags == IO_ERR_APPEND)
+			fid = open(s->err->string, O_APPEND | O_RDWR | O_CREAT, 0644);
+		else
+			fprintf(stderr, "RAGAT4\n");
+		if (fid < 0)
+			fprintf(stderr, "RAGAT5\n");
+		dup2(fid, STDERR_FILENO);
+	}
+
+	int result = chdir(s->params->string);
+
+	if (stdin_des != -1) {
+		dup2(stdin_des, STDIN_FILENO);
+	}
+	if (stdout_des != -1) {
+		dup2(stdout_des, STDOUT_FILENO);
+	}
+	if (stderr_des != -1) {
+		dup2(stderr_des, STDERR_FILENO);
+	}
+
+	if (result == 0) {
+		return true;
+	}
+	return false;
 }
 
 /**
@@ -53,9 +113,12 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 	/* TODO sanity checks */
 
 	/* TODO if builtin command, execute the command */
+
 	if (strcmp(s->verb->string, "cd") == 0) {
 		if (s->params != NULL) {
-			shell_cd(s->params);
+
+			shell_cd(s);
+			return 0;
 		}
 	}
 	if (strcmp(s->verb->string, "exit") == 0 ||
@@ -92,7 +155,7 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 		case -1:    /* error */
 			perror("fork");
 		case 0:        /* child process */
-			chdir(getenv("PWD"));
+
 			redirect(s);
 
 			params[no_args] = malloc(
@@ -112,6 +175,7 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 			execvp(s->verb->string, params);
 
 			fflush(stdout);
+
 		default:    /* parent process */
 			wait_ret = waitpid(pid, &status, 0);
 
@@ -154,8 +218,46 @@ static void redirect(simple_command_t *s) {
 		int fid = -1;
 		if (s->io_flags == IO_REGULAR) {
 			fid = open(s->err->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		} else if (s->io_flags == IO_ERR_APPEND)
+			fid = open(s->err->string, O_APPEND | O_RDWR | O_CREAT, 0644);
+		else
+			fprintf(stderr, "RAGAT4\n");
+		if (fid < 0)
+			fprintf(stderr, "RAGAT5\n");
+		dup2(fid, STDERR_FILENO);
+	}
+}
+
+static void stop_redirect(simple_command_t *s) {
+	if (s->in != NULL) {
+		int fid = open(s->in->string, O_RDONLY);
+		dup2(fid, STDIN_FILENO);
+	}
+
+
+	if (s->out != NULL) {
+		int fid = -1;
+		if (s->io_flags == IO_REGULAR)
+			fid = open(s->out->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		else if (s->io_flags == IO_OUT_APPEND)
+			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
+		else
+			fprintf(stderr, "RAGAT2\n");
+		if (fid < 0)
+			fprintf(stderr, "RAGAT\n");
+
+		dup2(fid, STDOUT_FILENO);
+		if (s->err != NULL) {
+			dup2(fid, STDERR_FILENO);
+			return;
 		}
-		else if (s->io_flags == IO_ERR_APPEND)
+	}
+
+	if (s->err != NULL) {
+		int fid = -1;
+		if (s->io_flags == IO_REGULAR) {
+			fid = open(s->err->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		} else if (s->io_flags == IO_ERR_APPEND)
 			fid = open(s->err->string, O_APPEND | O_RDWR | O_CREAT, 0644);
 		else
 			fprintf(stderr, "RAGAT4\n");
