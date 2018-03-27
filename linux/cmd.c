@@ -268,7 +268,6 @@ int parse_command(command_t *c, int level, command_t *father) {
 	switch (c->op) {
 		case OP_SEQUENTIAL:
 			/* TODO execute the commands one after the other */
-//			fprintf(stderr, "%s %s", c->cmd1->scmd->verb->string, c->cmd2->scmd->verb->string);
 			parse_command(c->cmd1, level + 1, c);
 			return parse_command(c->cmd2, level + 1, c);
 
@@ -280,10 +279,9 @@ int parse_command(command_t *c, int level, command_t *father) {
 			/* TODO execute the second command only if the first one
 			 * returns non zerov
 			 */
-
 			if (parse_command(c->cmd1, level + 1, c) != 0)
 				return parse_command(c->cmd2, level + 1, c);
-			break;
+			return 0;
 
 		case OP_CONDITIONAL_ZERO:
 			/* TODO execute the second command only if the first one
@@ -291,7 +289,7 @@ int parse_command(command_t *c, int level, command_t *father) {
 			 */
 			if (parse_command(c->cmd1, level + 1, c) == 0)
 				parse_command(c->cmd2, level + 1, c);
-			break;
+			return 1;
 
 		case OP_PIPE:
 			/* TODO redirect the output of the first command to the
