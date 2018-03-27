@@ -25,17 +25,15 @@
 
 static void redirect(simple_command_t *);
 
-static void stop_redirect(simple_command_t *);
-
 /**
  * Internal change-directory command.
  */
 
 
-static bool shell_cd(simple_command_t *s) {
+static int shell_cd(simple_command_t *s) {
 	/* TODO execute cd */
 	//redirect(s);
-	int fid = -1;
+	int fid;
 	int stdin_des = -1;
 	int stdout_des = -1;
 	int stderr_des = -1;
@@ -90,10 +88,7 @@ static bool shell_cd(simple_command_t *s) {
 		dup2(stderr_des, STDERR_FILENO);
 	}
 
-	if (result == 0) {
-		return true;
-	}
-	return false;
+	return result;
 }
 
 /**
@@ -114,17 +109,27 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 
 	/* TODO if builtin command, execute the command */
 
+	if (strcmp(s->verb->string, "true") == 0) {
+		return 0;
+	}
+
+	if (strcmp(s->verb->string, "false") == 0) {
+		return 1;
+	}
+
 	if (strcmp(s->verb->string, "cd") == 0) {
 		if (s->params != NULL) {
 
-			shell_cd(s);
-			return 0;
+			return shell_cd(s);
 		}
 	}
 	if (strcmp(s->verb->string, "exit") == 0 ||
 		strcmp(s->verb->string, "quit") == 0) {
 		shell_exit();
 	}
+
+//	fprintf(stderr, "%s %s %s\n", s->verb->string, s->verb->next_part->string,
+//			s->verb->next_part->next_part->string);
 
 	/* TODO if variable assignment, execute the assignment and return
 	 * the exit status
@@ -172,21 +177,23 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 				no_args++;
 			}
 			params[no_args] = (char *) NULL;
-			execvp(s->verb->string, params);
+			int result = execvp(s->verb->string, params);
 
 			fflush(stdout);
+			return result;
 
 		default:    /* parent process */
 			wait_ret = waitpid(pid, &status, 0);
 
-			//fprintf(stderr, "CHILD DIED %d %d \n", status, WIFEXITED(status));
-//
+			if (status != 0 || wait_ret == -1) {
+				return -1;
+			}
+			return 0;
 //			if (WIFEXITED(status))
 //				printf("Child process (pid %d) terminated normally, "
 //							   "with exit code %d\n",
 //					   pid, WEXITSTATUS(status));
 	}
-	return 0; /* TODO replace with actual exit status */
 }
 
 static void redirect(simple_command_t *s) {
@@ -203,48 +210,9 @@ static void redirect(simple_command_t *s) {
 		else if (s->io_flags == IO_OUT_APPEND)
 			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
 		else
-			fprintf(stderr, "RAGAT2\n");
+			fprintf(stderr, "IO flags error\n");
 		if (fid < 0)
-			fprintf(stderr, "RAGAT\n");
-
-		dup2(fid, STDOUT_FILENO);
-		if (s->err != NULL) {
-			dup2(fid, STDERR_FILENO);
-			return;
-		}
-	}
-
-	if (s->err != NULL) {
-		int fid = -1;
-		if (s->io_flags == IO_REGULAR) {
-			fid = open(s->err->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
-		} else if (s->io_flags == IO_ERR_APPEND)
-			fid = open(s->err->string, O_APPEND | O_RDWR | O_CREAT, 0644);
-		else
-			fprintf(stderr, "RAGAT4\n");
-		if (fid < 0)
-			fprintf(stderr, "RAGAT5\n");
-		dup2(fid, STDERR_FILENO);
-	}
-}
-
-static void stop_redirect(simple_command_t *s) {
-	if (s->in != NULL) {
-		int fid = open(s->in->string, O_RDONLY);
-		dup2(fid, STDIN_FILENO);
-	}
-
-
-	if (s->out != NULL) {
-		int fid = -1;
-		if (s->io_flags == IO_REGULAR)
-			fid = open(s->out->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
-		else if (s->io_flags == IO_OUT_APPEND)
-			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
-		else
-			fprintf(stderr, "RAGAT2\n");
-		if (fid < 0)
-			fprintf(stderr, "RAGAT\n");
+			fprintf(stderr, "Error opening file\n");
 
 		dup2(fid, STDOUT_FILENO);
 		if (s->err != NULL) {
@@ -292,21 +260,17 @@ static bool do_on_pipe(command_t *cmd1, command_t *cmd2, int level,
  */
 int parse_command(command_t *c, int level, command_t *father) {
 	/* TODO sanity checks */
-
-
-
-
 	if (c->op == OP_NONE) {
 		/* TODO execute a simple command */
-//		fprintf(stdout, "%s %s", c->scmd->verb->string, c->scmd->params->string);
-		parse_simple(c->scmd, level, father);
-		return 0; /* TODO replace with actual exit code of command */
+		return parse_simple(c->scmd, level, father);
 	}
 
 	switch (c->op) {
 		case OP_SEQUENTIAL:
 			/* TODO execute the commands one after the other */
-			break;
+//			fprintf(stderr, "%s %s", c->cmd1->scmd->verb->string, c->cmd2->scmd->verb->string);
+			parse_command(c->cmd1, level + 1, c);
+			return parse_command(c->cmd2, level + 1, c);
 
 		case OP_PARALLEL:
 			/* TODO execute the commands simultaneously */
@@ -314,14 +278,19 @@ int parse_command(command_t *c, int level, command_t *father) {
 
 		case OP_CONDITIONAL_NZERO:
 			/* TODO execute the second command only if the first one
-			 * returns non zero
+			 * returns non zerov
 			 */
+
+			if (parse_command(c->cmd1, level + 1, c) != 0)
+				return parse_command(c->cmd2, level + 1, c);
 			break;
 
 		case OP_CONDITIONAL_ZERO:
 			/* TODO execute the second command only if the first one
 			 * returns zero
 			 */
+			if (parse_command(c->cmd1, level + 1, c) == 0)
+				parse_command(c->cmd2, level + 1, c);
 			break;
 
 		case OP_PIPE:
