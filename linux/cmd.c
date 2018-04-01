@@ -266,13 +266,58 @@ static bool do_on_pipe(command_t *cmd1, command_t *cmd2, int level,
 					   command_t *father) {
 	/* TODO redirect the output of cmd1 to the input of cmd2 */
 
-	return true; /* TODO replace with actual exit status */
+	int fid[2];
+	pid_t pid1, pid2;
+	int status = -1;
+	int ret_code;
+
+	pipe(fid);
+	pid1 = fork();
+
+	switch (pid1) {
+		case -1:
+			fprintf(stderr, "ERROR");
+			break;
+
+		case 0:
+			close(fid[0]);
+			dup2(fid[1], STDOUT_FILENO);
+			ret_code = parse_command(cmd1, level + 1, father);
+			close(fid[1]);
+			exit(ret_code);
+
+		default:
+			pid2 = fork();
+			switch (pid2) {
+				case -1:
+					fprintf(stderr, "ERROR");
+					break;
+				case 0:
+					close(fid[1]);
+					dup2(fid[0], STDIN_FILENO);
+					ret_code =  parse_command(cmd2, level + 1, father);
+					close(fid[0]);
+					exit(ret_code);
+				default:
+					waitpid(pid1, &status, 0);
+					close(fid[1]);
+					waitpid(pid2, &status, 0);
+					close(fid[0]);
+			}
+	}
+
+	if(status == 0) {
+		return true;
+	}
+	return false;
 }
 
 /**
  * Parse and execute a command.
  */
 int parse_command(command_t *c, int level, command_t *father) {
+
+
 	/* TODO sanity checks */
 	if (c->op == OP_NONE) {
 		/* TODO execute a simple command */
@@ -309,7 +354,9 @@ int parse_command(command_t *c, int level, command_t *father) {
 			/* TODO redirect the output of the first command to the
 			 * input of the second
 			 */
-			break;
+			if(do_on_pipe(c->cmd1, c->cmd2, level, c))
+				return 0;
+			return 1;
 
 		default:
 			return SHELL_EXIT;
