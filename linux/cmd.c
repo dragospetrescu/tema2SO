@@ -256,7 +256,40 @@ static bool do_in_parallel(command_t *cmd1, command_t *cmd2, int level,
 						   command_t *father) {
 	/* TODO execute cmd1 and cmd2 simultaneously */
 
-	return true; /* TODO replace with actual exit status */
+	pid_t pid1, pid2;
+	int status = -1;
+	int ret_code;
+
+	pid1 = fork();
+
+	switch (pid1) {
+		case -1:
+			fprintf(stderr, "ERROR");
+			break;
+
+		case 0:
+			ret_code = parse_command(cmd1, level + 1, father);
+			exit(ret_code);
+
+		default:
+			pid2 = fork();
+			switch (pid2) {
+				case -1:
+					fprintf(stderr, "ERROR");
+					break;
+				case 0:
+					ret_code =  parse_command(cmd2, level + 1, father);
+					exit(ret_code);
+				default:
+					waitpid(pid1, &status, 0);
+					waitpid(pid2, &status, 0);
+			}
+	}
+
+	if(status == 0) {
+		return true;
+	}
+	return false;
 }
 
 /**
@@ -331,8 +364,9 @@ int parse_command(command_t *c, int level, command_t *father) {
 			return parse_command(c->cmd2, level + 1, c);
 
 		case OP_PARALLEL:
-			/* TODO execute the commands simultaneously */
-			break;
+			if(do_in_parallel(c->cmd1, c->cmd2, level, c))
+				return 0;
+			return 1;
 
 		case OP_CONDITIONAL_NZERO:
 			/* TODO execute the second command only if the first one
