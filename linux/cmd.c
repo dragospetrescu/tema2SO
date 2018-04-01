@@ -25,6 +25,8 @@
 
 static void redirect(simple_command_t *);
 
+static void set_variable(simple_command_t *);
+
 /**
  * Internal change-directory command.
  */
@@ -105,9 +107,6 @@ static int shell_exit(void) {
  * external command).
  */
 static int parse_simple(simple_command_t *s, int level, command_t *father) {
-	/* TODO sanity checks */
-
-	/* TODO if builtin command, execute the command */
 
 	if (strcmp(s->verb->string, "true") == 0) {
 		return 0;
@@ -128,23 +127,12 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 		shell_exit();
 	}
 
-//	fprintf(stderr, "%s %s %s\n", s->verb->string, s->verb->next_part->string,
-//			s->verb->next_part->next_part->string);
+	if (s->verb != NULL && s->verb->next_part != NULL &&
+		strcmp(s->verb->next_part->string, "=") == 0) {
+		set_variable(s);
+		return 0;
+	}
 
-	/* TODO if variable assignment, execute the assignment and return
-	 * the exit status
-	 */
-
-	/* TODO if external command:
-	 *   1. fork new process
-	 *     2c. perform redirections in child
-	 *     3c. load executable in child
-	 *   2. wait for child
-	 *   3. return exit status
-	 */
-
-
-//	printf("%d\n ", s->io_flags);
 
 	pid_t pid, wait_ret;
 	int status;
@@ -169,9 +157,16 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 			no_args++;
 
 			while (params_parser != NULL) {
-				params[no_args] = malloc(
-						sizeof(char) * (strlen(params_parser->string) + 1));
-				strcpy(params[no_args], params_parser->string);
+				if (params_parser->expand == true) {
+					if (getenv(params_parser->string) != NULL)
+						params[no_args] = strdup(getenv(params_parser->string));
+					else
+						strcat(params[no_args], "\0");
+				} else {
+					params[no_args] = malloc(
+							sizeof(char) * (strlen(params_parser->string) + 1));
+					strcpy(params[no_args], params_parser->string);
+				}
 
 				params_parser = params_parser->next_word;
 				no_args++;
@@ -189,10 +184,6 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 				return -1;
 			}
 			return 0;
-//			if (WIFEXITED(status))
-//				printf("Child process (pid %d) terminated normally, "
-//							   "with exit code %d\n",
-//					   pid, WEXITSTATUS(status));
 	}
 }
 
@@ -215,7 +206,7 @@ static void redirect(simple_command_t *s) {
 			fprintf(stderr, "Error opening file\n");
 
 		dup2(fid, STDOUT_FILENO);
-		if (s->err != NULL) {
+		if (s->err != NULL && strcmp(s->out->string, s->err->string) == 0) {
 			dup2(fid, STDERR_FILENO);
 			return;
 		}
@@ -233,6 +224,29 @@ static void redirect(simple_command_t *s) {
 			fprintf(stderr, "RAGAT5\n");
 		dup2(fid, STDERR_FILENO);
 	}
+}
+
+static void set_variable(simple_command_t *s) {
+	if (s->verb->next_part->next_part->expand == false) {
+		setenv(s->verb->string, s->verb->next_part->next_part->string, 1);
+	}
+	char *name = strdup(s->verb->string);
+	char *value = malloc(sizeof(char) * 1024);
+	value[0] = '\0';
+	word_t *part = s->verb->next_part->next_part;
+
+	while (part != NULL) {
+		if (part->expand == true) {
+			if (getenv(part->string) != NULL)
+				strcat(value, getenv(part->string));
+
+		} else {
+			strcat(value, part->string);
+		}
+		part = part->next_part;
+	}
+	setenv(name, value, 1);
+
 }
 
 /**
