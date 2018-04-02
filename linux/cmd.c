@@ -23,13 +23,15 @@
 #define READ        0
 #define WRITE        1
 
-static void redirect(simple_command_t *);
+static int* redirect(simple_command_t *);
 
 static void set_variable(simple_command_t *);
 
+static void reset_redirect(int *redirects);
+
 /**
- * Internal change-directory command.
- */
+* Internal change-directory command.
+*/
 
 
 static int shell_cd(simple_command_t *s) {
@@ -118,7 +120,6 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 
 	if (strcmp(s->verb->string, "cd") == 0) {
 		if (s->params != NULL) {
-
 			return shell_cd(s);
 		}
 	}
@@ -136,12 +137,9 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 
 	pid_t pid, wait_ret;
 	int status;
+	int size;
 	char **params;
-	word_t *params_parser;
-	int no_args = 0;
-
-	params = malloc(sizeof(char *) * 50);
-	params_parser = s->params;
+	int *redirects;
 
 	pid = fork();
 	switch (pid) {
@@ -149,32 +147,18 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 			perror("fork");
 		case 0:        /* child process */
 
-			redirect(s);
+			redirects = redirect(s);
 
-			params[no_args] = malloc(
-					sizeof(char) * (strlen(s->verb->string) + 1));
-			strcpy(params[no_args], s->verb->string);
-			no_args++;
-
-			while (params_parser != NULL) {
-				if (params_parser->expand == true) {
-					if (getenv(params_parser->string) != NULL)
-						params[no_args] = strdup(getenv(params_parser->string));
-					else
-						strcat(params[no_args], "\0");
-				} else {
-					params[no_args] = malloc(
-							sizeof(char) * (strlen(params_parser->string) + 1));
-					strcpy(params[no_args], params_parser->string);
-				}
-
-				params_parser = params_parser->next_word;
-				no_args++;
-			}
-			params[no_args] = (char *) NULL;
+			params = get_argv(s, &size);
 			int result = execvp(s->verb->string, params);
 
 			fflush(stdout);
+			reset_redirect(redirects);
+			for (int i = 0; i < size; ++i) {
+				free(params[i]);
+			}
+			free(params);
+			free(redirects);
 			return result;
 
 		default:    /* parent process */
@@ -187,43 +171,73 @@ static int parse_simple(simple_command_t *s, int level, command_t *father) {
 	}
 }
 
-static void redirect(simple_command_t *s) {
+static void reset_redirect(int *redirects) {
+	if(redirects[0] != -1) {
+		close(redirects[0]);
+	}
+	if(redirects[1] != -1) {
+		close(redirects[1]);
+	}
+	if(redirects[2] != -1) {
+		close(redirects[2]);
+	}
+}
+
+static int* redirect(simple_command_t *s) {
+	char *filename;
+	int fid = -1;
+	int *redirects = malloc(sizeof(int) * 3);
+
 	if (s->in != NULL) {
-		int fid = open(s->in->string, O_RDONLY);
+		filename = get_word(s->in);
+		fid = open(filename, O_RDONLY);
+		redirects[0] = fid;
 		dup2(fid, STDIN_FILENO);
+		free(filename);
 	}
 
 
 	if (s->out != NULL) {
-		int fid = -1;
-		if (s->io_flags == IO_REGULAR)
-			fid = open(s->out->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
-		else if (s->io_flags == IO_OUT_APPEND)
-			fid = open(s->out->string, O_APPEND | O_RDWR | O_CREAT, 0644);
-		else
+		filename = get_word(s->out);
+		if (s->io_flags == IO_REGULAR) {
+			fid = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		}
+		else if (s->io_flags == IO_OUT_APPEND) {
+			fid = open(filename, O_APPEND | O_RDWR | O_CREAT, 0644);
+		}
+		else {
 			fprintf(stderr, "IO flags error\n");
-		if (fid < 0)
+		}
+		if (fid < 0) {
 			fprintf(stderr, "Error opening file\n");
-
+		}
+		redirects[1] = fid;
 		dup2(fid, STDOUT_FILENO);
 		if (s->err != NULL && strcmp(s->out->string, s->err->string) == 0) {
 			dup2(fid, STDERR_FILENO);
-			return;
+			redirects[2] = -1;
+			return redirects;
 		}
+		free(filename);
 	}
 
 	if (s->err != NULL) {
-		int fid = -1;
+		filename = get_word(s->err);
 		if (s->io_flags == IO_REGULAR) {
-			fid = open(s->err->string, O_RDWR | O_CREAT | O_TRUNC, 0644);
-		} else if (s->io_flags == IO_ERR_APPEND)
-			fid = open(s->err->string, O_APPEND | O_RDWR | O_CREAT, 0644);
-		else
+			fid = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
+		} else if (s->io_flags == IO_ERR_APPEND) {
+			fid = open(filename, O_APPEND | O_RDWR | O_CREAT, 0644);
+		}
+		else {
 			fprintf(stderr, "RAGAT4\n");
-		if (fid < 0)
+		}
+		if (fid < 0) {
 			fprintf(stderr, "RAGAT5\n");
+		}
 		dup2(fid, STDERR_FILENO);
+		redirects[2] = fid;
 	}
+	return redirects;
 }
 
 static void set_variable(simple_command_t *s) {
@@ -231,20 +245,7 @@ static void set_variable(simple_command_t *s) {
 		setenv(s->verb->string, s->verb->next_part->next_part->string, 1);
 	}
 	char *name = strdup(s->verb->string);
-	char *value = malloc(sizeof(char) * 1024);
-	value[0] = '\0';
-	word_t *part = s->verb->next_part->next_part;
-
-	while (part != NULL) {
-		if (part->expand == true) {
-			if (getenv(part->string) != NULL)
-				strcat(value, getenv(part->string));
-
-		} else {
-			strcat(value, part->string);
-		}
-		part = part->next_part;
-	}
+	char *value = get_word(s->verb->next_part->next_part);
 	setenv(name, value, 1);
 
 }
