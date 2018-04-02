@@ -1,3 +1,4 @@
 *.o
 mini-shell
 *.log
+*.zip
