@@ -27,8 +27,6 @@ static int *redirect(simple_command_t *);
 
 static void set_variable(simple_command_t *);
 
-static void reset_redirect(int *redirects);
-
 static int shell_cd(simple_command_t *s)
 {
 	int fid;
@@ -93,7 +91,7 @@ static int shell_cd(simple_command_t *s)
 	return result;
 }
 
-static int shell_exit(void)
+static int shell_exit(simple_command_t *s, int level, command_t *father)
 {
 	exit(0);
 }
@@ -105,7 +103,7 @@ static int parse_simple(simple_command_t *s, int level, command_t *father)
 	int status;
 	int size;
 	char **params;
-	int *redirects;
+	int result;
 
 	if (strcmp(s->verb->string, "true") == 0)
 		return 0;
@@ -119,7 +117,7 @@ static int parse_simple(simple_command_t *s, int level, command_t *father)
 
 	if (strcmp(s->verb->string, "exit") == 0 ||
 		strcmp(s->verb->string, "quit") == 0)
-		shell_exit();
+		shell_exit(s, level, father);
 
 
 	if (s->verb != NULL && s->verb->next_part != NULL &&
@@ -133,37 +131,18 @@ static int parse_simple(simple_command_t *s, int level, command_t *father)
 	case -1:
 		perror("fork");
 	case 0:
-		redirects = redirect(s);
+		redirect(s);
 		params = get_argv(s, &size);
-		int result = execvp(s->verb->string, params);
-
+		result = execvp(s->verb->string, params);
 		fflush(stdout);
-		reset_redirect(redirects);
-		for (int i = 0; i < size; ++i)
-			free(params[i]);
-		free(params);
-		free(redirects);
-		return result;
-
+		fprintf(stderr, "Execution failed for '%s'\n", s->verb->string);
+		exit(result);
 	default:
 		wait_ret = waitpid(pid, &status, 0);
 		if (status != 0 || wait_ret == -1)
 			return -1;
 		return 0;
 	}
-}
-
-static void reset_redirect(int *redirects)
-{
-
-	if (redirects[0] != -1)
-		close(redirects[0]);
-
-	if (redirects[1] != -1)
-		close(redirects[1]);
-
-	if (redirects[2] != -1)
-		close(redirects[2]);
 }
 
 static int *redirect(simple_command_t *s)
@@ -317,7 +296,6 @@ static bool do_on_pipe(command_t *cmd1, command_t *cmd2, int level,
 
 int parse_command(command_t *c, int level, command_t *father)
 {
-
 	if (c->op == OP_NONE)
 		return parse_simple(c->scmd, level, father);
 
