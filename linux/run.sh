@@ -2,5 +2,5 @@
 
 cd linux/
 make
-./mini-shell
+make -f Makefile.checker
 make clean
